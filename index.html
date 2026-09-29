@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>JLPT N2 Preparation Tracker</title>
+  <title>JLPT N2 Master Tracker (MariaDB Cloud)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
@@ -20,11 +20,17 @@
         <h1 class="text-3xl font-black tracking-tight text-white flex items-center gap-3">
           <span>JLPT N2 Master Tracker</span>
         </h1>
-        <p class="text-slate-400 text-sm mt-1">
-          Lug‘at: <span class="text-emerald-400 font-semibold">Tango 2500</span> | Baza: <span class="text-indigo-400 font-semibold font-mono">asomiddin320_master (MariaDB)</span>
+        <p class="text-slate-400 text-sm mt-1 flex items-center gap-2 flex-wrap">
+          <span>Lug‘at: <span class="text-emerald-400 font-semibold">Tango 2500</span> | Boshqalar: <span class="text-indigo-400 font-semibold">Sou Matome</span></span>
+          <span class="text-slate-600">•</span>
+          <span id="syncIndicator" class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-slate-800 text-slate-300">
+            <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse" id="syncDot"></span>
+            <span id="syncText">Ulanmoqda...</span>
+          </span>
         </p>
       </div>
 
+      <!-- Boshqaruv elementlari -->
       <div class="flex flex-wrap items-center gap-2.5">
         <div class="bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 flex items-center gap-2">
           <label for="startDatePicker" class="text-xs text-slate-400 font-medium">Boshlash kuni:</label>
@@ -39,7 +45,7 @@
       </div>
     </header>
 
-    <!-- Global Progress Summary -->
+    <!-- Umumiy Jarayon (Global Progress) -->
     <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6 mb-8 shadow-xl">
       <div class="flex flex-col sm:flex-row justify-between sm:items-end gap-3 mb-3">
         <div>
@@ -56,7 +62,7 @@
       </div>
     </section>
 
-    <!-- MariaDB Online Viewer -->
+    <!-- MariaDB Bazani Ko'rish Paneli -->
     <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6 mb-8 shadow-xl">
       <div class="flex flex-col lg:flex-row lg:items-end justify-between gap-4 mb-4">
         <div>
@@ -75,11 +81,11 @@
         <div class="flex-1">
           <label for="dbTableSelect" class="block text-xs text-slate-400 mb-1">Mavjud jadvallar</label>
           <select id="dbTableSelect" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-sm text-slate-200 disabled:opacity-60" disabled>
-            <option value="">Avval "Bazani yangilash"ni bosing</option>
+            <option value="">Yuklanmoqda...</option>
           </select>
         </div>
         <div>
-          <label for="dbLimitInput" class="block text-xs text-slate-400 mb-1">Limit</label>
+          <label for="dbLimitInput" class="block text-xs text-slate-400 mb-1">Qatorlar limiti</label>
           <input id="dbLimitInput" type="number" min="1" max="500" value="25" class="w-28 bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-sm text-slate-200">
         </div>
         <button onclick="fetchTableData()" id="previewBtn" class="bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2 rounded-lg text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition" disabled>
@@ -87,14 +93,14 @@
         </button>
       </div>
 
-      <p id="dbStatus" class="text-xs text-slate-400 mb-3">Baza holati: Tayyor</p>
+      <p id="dbStatus" class="text-xs text-slate-400 mb-3">Baza holati: Yuklanmoqda...</p>
       <div id="dbTableWrapper" class="overflow-auto max-h-96 rounded-xl border border-slate-800 bg-slate-950/50"></div>
     </section>
 
-    <!-- Subject Tabs -->
+    <!-- Fanlar Ro'yxati Tablari -->
     <nav class="flex gap-2 overflow-x-auto pb-3 mb-6 no-scrollbar" id="bookTabs"></nav>
 
-    <!-- Active Subject Content -->
+    <!-- Faol Fan Kontenti -->
     <main>
       <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 sm:p-6">
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 pb-4 border-b border-slate-800">
@@ -113,6 +119,7 @@
           </div>
         </div>
 
+        <!-- Kartochkalar -->
         <div id="cardsContainer" class="space-y-6"></div>
       </div>
     </main>
@@ -120,14 +127,11 @@
 
   <script>
     const API_URL = 'api.php';
+    const STORAGE_KEY = 'jlpt_n2_tracker_tango_v1';
+    const START_DATE_KEY = 'jlpt_n2_start_date_tango_v1';
 
-    function setDbStatus(msg, tone = 'normal') {
-      const el = document.getElementById('dbStatus');
-      el.innerText = msg;
-      el.className = `text-xs mb-3 ${
-        tone === 'error' ? 'text-rose-400' : tone === 'success' ? 'text-emerald-400' : 'text-slate-400'
-      }`;
-    }
+    // Baza holati va kesh
+    let memoryState = {};
 
     function escapeHtml(value) {
       return String(value)
@@ -138,7 +142,107 @@
         .replaceAll("'", '&#39;');
     }
 
-    // 1. Jadvallarni yuklab kelish
+    function setSyncStatus(text, color = 'green') {
+      const dot = document.getElementById('syncDot');
+      const label = document.getElementById('syncText');
+      label.innerText = text;
+      if (color === 'green') {
+        dot.className = 'w-2 h-2 rounded-full bg-emerald-400';
+      } else if (color === 'amber') {
+        dot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-pulse';
+      } else {
+        dot.className = 'w-2 h-2 rounded-full bg-rose-400';
+      }
+    }
+
+    function setDbStatus(msg, tone = 'normal') {
+      const el = document.getElementById('dbStatus');
+      el.innerText = msg;
+      el.className = `text-xs mb-3 ${
+        tone === 'error' ? 'text-rose-400' : tone === 'success' ? 'text-emerald-400' : 'text-slate-400'
+      }`;
+    }
+
+    // 1. Bazadan progressni yuklab olish
+    async function loadProgressFromDatabase() {
+      setSyncStatus('Bazadan yuklanmoqda...', 'amber');
+      try {
+        const res = await fetch(`${API_URL}?action=get_progress`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (data.status === 'success') {
+          memoryState = data.state || {};
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(memoryState));
+          setSyncStatus('MariaDB sinxronlangan', 'green');
+        } else {
+          throw new Error(data.message);
+        }
+      } catch (err) {
+        console.warn("Bazaga ulanib bo'lmadi, lokal kesh ochilmoqda:", err);
+        const cached = localStorage.getItem(STORAGE_KEY);
+        memoryState = cached ? JSON.parse(cached) : {};
+        setSyncStatus('Oflayn (keshdan)', 'amber');
+      }
+      render();
+    }
+
+    // 2. Har bir tugma bosilganda bazaga AVTOMATIK yozish
+    async function toggleItem(key) {
+      const isDone = !!memoryState[key]?.done;
+      const now = new Date();
+      const formattedDate = `${String(now.getDate()).padStart(2, '0')}.${String(now.getMonth() + 1).padStart(2, '0')}.${now.getFullYear()}`;
+
+      // UI ni darhol yangilash (tezkor ishlashi uchun)
+      if (isDone) {
+        delete memoryState[key];
+      } else {
+        memoryState[key] = { done: true, completedAt: formattedDate };
+      }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(memoryState));
+      render();
+
+      // Orqa fonda MariaDB bazaga yozish
+      setSyncStatus('Saqlanmoqda...', 'amber');
+      try {
+        const res = await fetch(`${API_URL}?action=toggle_progress`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            key: key,
+            done: !isDone,
+            completedAt: formattedDate
+          })
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+          setSyncStatus('MariaDB sinxronlangan', 'green');
+        } else {
+          throw new Error(data.message);
+        }
+      } catch (e) {
+        console.error("Bazaga yozishda xatolik:", e);
+        setSyncStatus('Saqlashda xatolik!', 'rose');
+      }
+    }
+
+    // 3. Barcha natijalarni tozalash (bazadan ham o'chiradi)
+    async function resetAllProgress() {
+      if (!confirm("Haqiqatan ham barcha natijalarni tozalab tashlamoqchimisiz? Bu bazadan ham o‘chiriladi.")) {
+        return;
+      }
+      memoryState = {};
+      localStorage.removeItem(STORAGE_KEY);
+      render();
+
+      try {
+        await fetch(`${API_URL}?action=reset_progress`, { method: 'POST' });
+        setSyncStatus('Baza tozalandi', 'green');
+      } catch (e) {
+        setSyncStatus('Tozalashda xatolik', 'rose');
+      }
+    }
+
+    // 4. Jadvallar ro'yxatini olish
     async function fetchTables() {
       const select = document.getElementById('dbTableSelect');
       const previewBtn = document.getElementById('previewBtn');
@@ -152,11 +256,11 @@
         if (!res.ok) throw new Error(`HTTP xatosi: ${res.status}`);
         const data = await res.json();
 
-        if (data.status !== 'success') throw new Error(data.message || 'Xatolik');
+        if (data.status !== 'success') throw new Error(data.message);
 
         if (!data.tables.length) {
-          setDbStatus('Bazada jadvallar mavjud emas.', 'error');
-          select.innerHTML = '<option value="">Jadvallar yo‘q</option>';
+          setDbStatus('Bazada jadvallar yo‘q.', 'error');
+          select.innerHTML = '<option value="">Jadvallar topilmadi</option>';
           select.disabled = true;
           previewBtn.disabled = true;
           return;
@@ -167,15 +271,15 @@
           .join('');
         select.disabled = false;
         previewBtn.disabled = false;
-        setDbStatus(`Muvaffaqiyatli ulandi! ${data.tables.length} ta jadval topildi.`, 'success');
+        setDbStatus(`Ulandi! ${data.tables.length} ta jadval mavjud.`, 'success');
       } catch (err) {
-        setDbStatus(`Ulanishda xatolik: ${err.message}. api.php sozlamalarini tekshiring.`, 'error');
+        setDbStatus(`Ulanishda xatolik: ${err.message}`, 'error');
       } finally {
         refreshBtn.disabled = false;
       }
     }
 
-    // 2. Tanlangan jadval ma'lumotlarini yuklash
+    // 5. Tanlangan jadvalni ochish
     async function fetchTableData() {
       const table = document.getElementById('dbTableSelect').value;
       const limit = document.getElementById('dbLimitInput').value || 25;
@@ -183,11 +287,11 @@
 
       if (!table) return;
 
-      setDbStatus(`"${table}" jadvali yuklanmoqda...`, 'normal');
+      setDbStatus(`"${table}" jadvali o‘qilmoqda...`, 'normal');
 
       try {
         const res = await fetch(`${API_URL}?action=query&table=${encodeURIComponent(table)}&limit=${limit}`);
-        if (!res.ok) throw new Error(`HTTP xatosi: ${res.status}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
 
         if (data.status !== 'success') throw new Error(data.message);
@@ -214,11 +318,11 @@
 
         setDbStatus(`"${table}" muvaffaqiyatli ochildi.`, 'success');
       } catch (err) {
-        setDbStatus(`Jadvalni olishda xatolik: ${err.message}`, 'error');
+        setDbStatus(`Jadvalni yuklashda xatolik: ${err.message}`, 'error');
       }
     }
 
-    // --- Tracker Logikasi ---
+    // --- Tracker Strukturasi va Sanalar ---
     const TANGO_CHAPTERS = [
       { id: 1, title: '第1章 人間関係', uz: 'Insoniy munosabatlar', count: 5 },
       { id: 2, title: '第2章 暮らし', uz: 'Kundalik turmush', count: 5 },
@@ -236,8 +340,8 @@
 
     const BOOKS = [
       { id: 'tango2500', title: '語彙 • Tango 2500', type: 'tango', chapters: TANGO_CHAPTERS, totalItems: 60, desc: '12 Bob • 60 Section • Kuniga 1 section (~40 ta so‘z)' },
-      { id: 'bunpou', title: '文法 (Grammatika)', type: 'soumatome', weeks: 8, daysPerWeek: 7, totalItems: 56, desc: 'Sou Matome • 8 hafta • Kuniga 3-4 grammatik struktura' },
-      { id: 'kanji', title: '漢字 (Kanji)', type: 'soumatome', weeks: 8, daysPerWeek: 7, totalItems: 56, desc: 'Sou Matome • 8 hafta • Kuniga ~15 kanji' },
+      { id: 'bunpou', title: '文法 (Grammatika)', type: 'soumatome', weeks: 8, daysPerWeek: 7, totalItems: 56, desc: 'Sou Matome • 8 hafta • Kuniga 3-4 grammatik struktura • 7-kun test' },
+      { id: 'kanji', title: '漢字 (Kanji)', type: 'soumatome', weeks: 8, daysPerWeek: 7, totalItems: 56, desc: 'Sou Matome • 8 hafta • Kuniga ~15 kanji • 7-kun test' },
       { id: 'dokkai', title: '読解 (O‘qish)', type: 'soumatome', weeks: 6, daysPerWeek: 7, totalItems: 42, desc: 'Sou Matome • 6 hafta • Qisqa, o‘rta, uzun matnlar' },
       { id: 'choukai', title: '聴解 (Eshitish)', type: 'soumatome', weeks: 4, daysPerWeek: 7, totalItems: 28, desc: 'Sou Matome • 4 hafta • Tinglash mashqlari' }
     ];
@@ -254,8 +358,6 @@
 
     const UZ_MONTHS = ['Yan', 'Fev', 'Mar', 'Apr', 'May', 'Iyun', 'Iyul', 'Avg', 'Sen', 'Okt', 'Noy', 'Dek'];
     let currentBookId = 'tango2500';
-    const STORAGE_KEY = 'jlpt_n2_tracker_tango_v1';
-    const START_DATE_KEY = 'jlpt_n2_start_date_tango_v1';
 
     function getStartDate() {
       let saved = localStorage.getItem(START_DATE_KEY);
@@ -285,37 +387,6 @@
       render();
     }
 
-    function loadState() {
-      const data = localStorage.getItem(STORAGE_KEY);
-      return data ? JSON.parse(data) : {};
-    }
-
-    function saveState(state) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    }
-
-    function toggleItem(key) {
-      const state = loadState();
-      if (state[key]?.done) {
-        delete state[key];
-      } else {
-        const now = new Date();
-        state[key] = {
-          done: true,
-          completedAt: `${String(now.getDate()).padStart(2, '0')}.${String(now.getMonth() + 1).padStart(2, '0')}.${now.getFullYear()}`
-        };
-      }
-      saveState(state);
-      render();
-    }
-
-    function resetAllProgress() {
-      if (confirm("Barcha natijalarni tozalab tashlamoqchimisiz?")) {
-        localStorage.removeItem(STORAGE_KEY);
-        render();
-      }
-    }
-
     function switchBook(bookId) {
       currentBookId = bookId;
       render();
@@ -334,7 +405,6 @@
     }
 
     function render() {
-      const state = loadState();
       const startDateStr = getStartDate();
       document.getElementById('startDatePicker').value = startDateStr;
 
@@ -349,13 +419,13 @@
         if (b.type === 'tango') {
           b.chapters.forEach(ch => {
             for (let s = 1; s <= ch.count; s++) {
-              if (state[`tango_c${ch.id}_s${s}`]?.done) bDone++;
+              if (memoryState[`tango_c${ch.id}_s${s}`]?.done) bDone++;
             }
           });
         } else {
           for (let w = 1; w <= b.weeks; w++) {
             for (let d = 1; d <= b.daysPerWeek; d++) {
-              if (state[`${b.id}_w${w}_d${d}`]?.done) bDone++;
+              if (memoryState[`${b.id}_w${w}_d${d}`]?.done) bDone++;
             }
           }
         }
@@ -385,13 +455,13 @@
         if (b.type === 'tango') {
           b.chapters.forEach(ch => {
             for (let s = 1; s <= ch.count; s++) {
-              if (state[`tango_c${ch.id}_s${s}`]?.done) bDone++;
+              if (memoryState[`tango_c${ch.id}_s${s}`]?.done) bDone++;
             }
           });
         } else {
           for (let w = 1; w <= b.weeks; w++) {
             for (let d = 1; d <= b.daysPerWeek; d++) {
-              if (state[`${b.id}_w${w}_d${d}`]?.done) bDone++;
+              if (memoryState[`${b.id}_w${w}_d${d}`]?.done) bDone++;
             }
           }
         }
@@ -418,7 +488,7 @@
         currentBook.chapters.forEach(ch => {
           let chDone = 0;
           for (let s = 1; s <= ch.count; s++) {
-            if (state[`tango_c${ch.id}_s${s}`]?.done) chDone++;
+            if (memoryState[`tango_c${ch.id}_s${s}`]?.done) chDone++;
           }
 
           const card = document.createElement('div');
@@ -427,7 +497,7 @@
           let sectionsHtml = '';
           for (let s = 1; s <= ch.count; s++) {
             const key = `tango_c${ch.id}_s${s}`;
-            const item = state[key];
+            const item = memoryState[key];
             const isDone = !!item?.done;
             const schedule = calculateDateByOffset(startDateStr, globalSectionIdx);
             globalSectionIdx++;
@@ -484,7 +554,7 @@
         for (let w = 1; w <= currentBook.weeks; w++) {
           let weekCompleted = 0;
           for (let d = 1; d <= 7; d++) {
-            if (state[`${currentBook.id}_w${w}_d${d}`]?.done) weekCompleted++;
+            if (memoryState[`${currentBook.id}_w${w}_d${d}`]?.done) weekCompleted++;
           }
 
           const card = document.createElement('div');
@@ -493,7 +563,7 @@
           let daysHtml = '';
           for (let d = 1; d <= 7; d++) {
             const key = `${currentBook.id}_w${w}_d${d}`;
-            const item = state[key];
+            const item = memoryState[key];
             const isDone = !!item?.done;
             const isTestDay = d === 7;
             const offset = ((w - 1) * 7) + (d - 1);
@@ -550,8 +620,9 @@
       }
     }
 
+    // Sahifa yuklanganda ishga tushirish
     render();
-    // Sahifa ochilganda avtomatik jadvallarni yuklash
+    loadProgressFromDatabase();
     fetchTables();
   </script>
 </body>
