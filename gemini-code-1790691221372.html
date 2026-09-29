@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JLPT N2 Preparation Tracker (Tango 2500 + Sou Matome)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen py-8 px-4 sm:px-6 lg:px-8">
+  <div class="max-w-6xl mx-auto">
+    
+    <!-- Header -->
+    <header class="mb-8 border-b border-slate-800 pb-6 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+      <div>
+        <h1 class="text-3xl font-black tracking-tight text-white flex items-center gap-3">
+          <span>JLPT N2 Master Tracker</span>
+        </h1>
+        <p class="text-slate-400 text-sm mt-1">
+          Lug‘at: <span class="text-emerald-400 font-semibold">Tango 2500</span> (12 Bob • 60 Section) | Qolganlari: <span class="text-indigo-400 font-semibold">Sou Matome</span>
+        </p>
+      </div>
+
+      <!-- Controls -->
+      <div class="flex flex-wrap items-center gap-2.5">
+        <div class="bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 flex items-center gap-2">
+          <label for="startDatePicker" class="text-xs text-slate-400 font-medium">Boshlash kuni:</label>
+          <input type="date" id="startDatePicker" onchange="updateStartDate(this.value)" class="bg-slate-800 text-slate-200 text-xs rounded-lg px-2 py-1 border border-slate-700 focus:outline-none focus:border-indigo-500">
+        </div>
+        <button onclick="alignToNearestMonday()" class="text-xs bg-slate-900 hover:bg-slate-800 text-indigo-300 border border-indigo-900/50 px-3 py-2 rounded-xl transition">
+          Dushanbaga moslash
+        </button>
+        <button onclick="resetAllProgress()" class="text-xs text-rose-400 hover:text-rose-300 border border-rose-900/50 hover:bg-rose-950/40 px-3 py-2 rounded-xl transition">
+          Tozalash
+        </button>
+      </div>
+    </header>
+
+    <!-- Global Progress Summary -->
+    <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6 mb-8 shadow-xl">
+      <div class="flex flex-col sm:flex-row justify-between sm:items-end gap-3 mb-3">
+        <div>
+          <span class="text-xs uppercase tracking-wider text-slate-400 font-semibold">Umumiy Tayyorgarlik</span>
+          <div class="text-4xl font-black text-indigo-400 mt-1" id="globalPercent">0%</div>
+        </div>
+        <div class="sm:text-right">
+          <span class="text-sm font-semibold text-slate-300" id="globalCount">0 / 242 bosqich</span>
+          <div class="text-xs text-slate-400 mt-0.5" id="globalDaysLeft">0 bosqich qoldi</div>
+        </div>
+      </div>
+      <div class="w-full bg-slate-800 rounded-full h-3 overflow-hidden">
+        <div id="globalProgressBar" class="bg-gradient-to-r from-emerald-500 via-indigo-500 to-sky-400 h-3 rounded-full transition-all duration-300" style="width: 0%"></div>
+      </div>
+    </section>
+
+    <!-- Subject Tabs -->
+    <nav class="flex gap-2 overflow-x-auto pb-3 mb-6 no-scrollbar" id="bookTabs"></nav>
+
+    <!-- Active Subject Content -->
+    <main>
+      <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 sm:p-6">
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 pb-4 border-b border-slate-800">
+          <div>
+            <h2 class="text-xl font-bold text-white flex items-center gap-2" id="currentBookTitle"></h2>
+            <p class="text-xs text-slate-400 mt-0.5" id="currentBookDesc"></p>
+          </div>
+          <div class="flex items-center gap-3 w-full sm:w-auto">
+            <div class="text-right text-sm">
+              <span class="font-bold text-emerald-400" id="currentBookPercent">0%</span>
+              <span class="text-slate-400 text-xs ml-1" id="currentBookCount">(0 / 0)</span>
+            </div>
+            <div class="w-32 bg-slate-800 rounded-full h-2.5 overflow-hidden">
+              <div id="currentBookProgressBar" class="bg-emerald-500 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cards Container -->
+        <div id="cardsContainer" class="space-y-6"></div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    // Tango 2500 barcha 12 ta bobi
+    const TANGO_CHAPTERS = [
+      { id: 1, title: '第1章 人間関係', uz: 'Insoniy munosabatlar', count: 5 },
+      { id: 2, title: '第2章 暮らし', uz: 'Kundalik turmush', count: 5 },
+      { id: 3, title: '第3章 家・住まい', uz: 'Uy-joy va jihozlar', count: 5 },
+      { id: 4, title: '第4章 街・地域', uz: 'Shahar va transport', count: 5 },
+      { id: 5, title: '第5章 学校・教育', uz: 'Ta’lim va maktab', count: 5 },
+      { id: 6, title: '第6章 働く・仕事', uz: 'Ish va karyera', count: 5 },
+      { id: 7, title: '第7章 健康・体', uz: 'Salomatlik va tana', count: 5 },
+      { id: 8, title: '第8章 趣味・レジャー', uz: 'Qiziqish va dam olish', count: 5 },
+      { id: 9, title: '第9章 自然・環境', uz: 'Tabiat va ekologiya', count: 5 },
+      { id: 10, title: '第10章 社会・経済', uz: 'Jamiyat va iqtisodiyot', count: 5 },
+      { id: 11, title: '第11章 科学・情報', uz: 'Fan va IT', count: 5 },
+      { id: 12, title: '第12章 言葉・表現・気持ち', uz: 'Iboralar va tuyg‘ular', count: 5 }
+    ];
+
+    const BOOKS = [
+      { 
+        id: 'tango2500', 
+        title: '語彙 • Tango 2500', 
+        type: 'tango',
+        chapters: TANGO_CHAPTERS,
+        totalItems: 60,
+        desc: '12 Bob • 60 Section • Kuniga 1 section (~40 ta so‘z) + Namunaviy gaplar va audio'
+      },
+      { 
+        id: 'bunpou', 
+        title: '文法 (Grammatika)', 
+        type: 'soumatome',
+        weeks: 8, daysPerWeek: 7, totalItems: 56,
+        desc: 'Sou Matome • 8 hafta • Kuniga 3-4 grammatik struktura • 7-kun test' 
+      },
+      { 
+        id: 'kanji', 
+        title: '漢字 (Kanji)', 
+        type: 'soumatome',
+        weeks: 8, daysPerWeek: 7, totalItems: 56,
+        desc: 'Sou Matome • 8 hafta • Kuniga ~15 kanji • 7-kun sinov testi' 
+      },
+      { 
+        id: 'dokkai', 
+        title: '読解 (O‘qish)', 
+        type: 'soumatome',
+        weeks: 6, daysPerWeek: 7, totalItems: 42,
+        desc: 'Sou Matome • 6 hafta • Qisqa, o‘rta, uzun matnlar' 
+      },
+      { 
+        id: 'choukai', 
+        title: '聴解 (Eshitish)', 
+        type: 'soumatome',
+        weeks: 4, daysPerWeek: 7, totalItems: 28,
+        desc: 'Sou Matome • 4 hafta • Imtihon formatidagi tinglash mashqlari' 
+      }
+    ];
+
+    const REAL_WEEKDAYS = {
+      0: { name: 'Yakshanba', jp: '日' },
+      1: { name: 'Dushanba', jp: '月' },
+      2: { name: 'Seshanba', jp: '火' },
+      3: { name: 'Chorshanba', jp: '水' },
+      4: { name: 'Payshanba', jp: '木' },
+      5: { name: 'Juma', jp: '金' },
+      6: { name: 'Shanba', jp: '土' }
+    };
+
+    const UZ_MONTHS = ['Yan', 'Fev', 'Mar', 'Apr', 'May', 'Iyun', 'Iyul', 'Avg', 'Sen', 'Okt', 'Noy', 'Dek'];
+
+    let currentBookId = 'tango2500';
+    const STORAGE_KEY = 'jlpt_n2_tracker_tango_v1';
+    const START_DATE_KEY = 'jlpt_n2_start_date_tango_v1';
+
+    function getStartDate() {
+      let saved = localStorage.getItem(START_DATE_KEY);
+      if (!saved) {
+        const today = new Date();
+        const y = today.getFullYear();
+        const m = String(today.getMonth() + 1).padStart(2, '0');
+        const d = String(today.getDate()).padStart(2, '0');
+        saved = `${y}-${m}-${d}`;
+        localStorage.setItem(START_DATE_KEY, saved);
+      }
+      return saved;
+    }
+
+    function updateStartDate(val) {
+      if (val) {
+        localStorage.setItem(START_DATE_KEY, val);
+        render();
+      }
+    }
+
+    function alignToNearestMonday() {
+      const today = new Date();
+      const currentDay = today.getDay();
+      const diffToMonday = currentDay === 0 ? -6 : 1 - currentDay;
+      const monday = new Date(today);
+      monday.setDate(today.getDate() + diffToMonday);
+
+      const y = monday.getFullYear();
+      const m = String(monday.getMonth() + 1).padStart(2, '0');
+      const d = String(monday.getDate()).padStart(2, '0');
+      const mondayStr = `${y}-${m}-${d}`;
+
+      localStorage.setItem(START_DATE_KEY, mondayStr);
+      render();
+    }
+
+    function loadState() {
+      const data = localStorage.getItem(STORAGE_KEY);
+      return data ? JSON.parse(data) : {};
+    }
+
+    function saveState(state) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    }
+
+    function toggleItem(key) {
+      const state = loadState();
+      if (state[key]?.done) {
+        delete state[key];
+      } else {
+        const now = new Date();
+        const formattedDate = `${String(now.getDate()).padStart(2, '0')}.${String(now.getMonth() + 1).padStart(2, '0')}.${now.getFullYear()}`;
+        state[key] = {
+          done: true,
+          completedAt: formattedDate
+        };
+      }
+      saveState(state);
+      render();
+    }
+
+    function resetAllProgress() {
+      if (confirm("Haqiqatan ham barcha natijalarni tozalab tashlamoqchimisiz?")) {
+        localStorage.removeItem(STORAGE_KEY);
+        render();
+      }
+    }
+
+    function switchBook(bookId) {
+      currentBookId = bookId;
+      render();
+    }
+
+    function calculateDateByOffset(baseDateStr, offsetDays) {
+      const [y, m, dNum] = baseDateStr.split('-').map(Number);
+      const base = new Date(y, m - 1, dNum);
+      const target = new Date(base.getFullYear(), base.getMonth(), base.getDate() + offsetDays);
+
+      const dayOfWeekIdx = target.getDay();
+      const weekdayInfo = REAL_WEEKDAYS[dayOfWeekIdx];
+
+      const today = new Date();
+      const isToday = (
+        target.getDate() === today.getDate() &&
+        target.getMonth() === today.getMonth() &&
+        target.getFullYear() === today.getFullYear()
+      );
+
+      return {
+        formattedDate: `${target.getDate()}-${UZ_MONTHS[target.getMonth()]}`,
+        weekdayName: weekdayInfo.name,
+        weekdayJp: weekdayInfo.jp,
+        isToday: isToday
+      };
+    }
+
+    function render() {
+      const state = loadState();
+      const startDateStr = getStartDate();
+      document.getElementById('startDatePicker').value = startDateStr;
+
+      const currentBook = BOOKS.find(b => b.id === currentBookId);
+
+      // 1. Hisob-kitoblar
+      let totalItems = 0;
+      let completedItems = 0;
+      let currentBookCompleted = 0;
+
+      BOOKS.forEach(b => {
+        totalItems += b.totalItems;
+        let bDone = 0;
+        if (b.type === 'tango') {
+          b.chapters.forEach(ch => {
+            for (let s = 1; s <= ch.count; s++) {
+              if (state[`tango_c${ch.id}_s${s}`]?.done) bDone++;
+            }
+          });
+        } else {
+          for (let w = 1; w <= b.weeks; w++) {
+            for (let d = 1; d <= b.daysPerWeek; d++) {
+              if (state[`${b.id}_w${w}_d${d}`]?.done) bDone++;
+            }
+          }
+        }
+        completedItems += bDone;
+        if (b.id === currentBookId) currentBookCompleted = bDone;
+      });
+
+      const globalPercent = Math.round((completedItems / totalItems) * 100) || 0;
+      const currentPercent = Math.round((currentBookCompleted / currentBook.totalItems) * 100) || 0;
+
+      document.getElementById('globalPercent').innerText = `${globalPercent}%`;
+      document.getElementById('globalCount').innerText = `${completedItems} / ${totalItems} bosqich`;
+      document.getElementById('globalDaysLeft').innerText = `${totalItems - completedItems} ta bosqich qoldi`;
+      document.getElementById('globalProgressBar').style.width = `${globalPercent}%`;
+
+      document.getElementById('currentBookTitle').innerText = currentBook.title;
+      document.getElementById('currentBookDesc').innerText = currentBook.desc;
+      document.getElementById('currentBookPercent').innerText = `${currentPercent}%`;
+      document.getElementById('currentBookCount').innerText = `(${currentBookCompleted} / ${currentBook.totalItems})`;
+      document.getElementById('currentBookProgressBar').style.width = `${currentPercent}%`;
+
+      // 2. Tablar
+      const tabsContainer = document.getElementById('bookTabs');
+      tabsContainer.innerHTML = '';
+      BOOKS.forEach(b => {
+        let bDone = 0;
+        if (b.type === 'tango') {
+          b.chapters.forEach(ch => {
+            for (let s = 1; s <= ch.count; s++) {
+              if (state[`tango_c${ch.id}_s${s}`]?.done) bDone++;
+            }
+          });
+        } else {
+          for (let w = 1; w <= b.weeks; w++) {
+            for (let d = 1; d <= b.daysPerWeek; d++) {
+              if (state[`${b.id}_w${w}_d${d}`]?.done) bDone++;
+            }
+          }
+        }
+        const bPct = Math.round((bDone / b.totalItems) * 100) || 0;
+        const isActive = b.id === currentBookId;
+
+        const btn = document.createElement('button');
+        btn.onclick = () => switchBook(b.id);
+        btn.className = `px-4 py-2.5 rounded-xl font-medium text-sm flex items-center gap-2 whitespace-nowrap transition ${
+          isActive 
+            ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30' 
+            : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'
+        }`;
+        btn.innerHTML = `<span>${b.title}</span><span class="text-xs px-1.5 py-0.5 rounded-full ${isActive ? 'bg-emerald-800 text-emerald-100' : 'bg-slate-800 text-slate-400'}">${bPct}%</span>`;
+        tabsContainer.appendChild(btn);
+      });
+
+      // 3. Kontentni chizish
+      const container = document.getElementById('cardsContainer');
+      container.innerHTML = '';
+
+      if (currentBook.type === 'tango') {
+        // Tango 2500 UI
+        let globalSectionIdx = 0;
+        currentBook.chapters.forEach(ch => {
+          let chDone = 0;
+          for (let s = 1; s <= ch.count; s++) {
+            if (state[`tango_c${ch.id}_s${s}`]?.done) chDone++;
+          }
+
+          const card = document.createElement('div');
+          card.className = 'bg-slate-950/70 border border-slate-800/80 rounded-xl p-4 sm:p-5';
+
+          let sectionsHtml = '';
+          for (let s = 1; s <= ch.count; s++) {
+            const key = `tango_c${ch.id}_s${s}`;
+            const item = state[key];
+            const isDone = !!item?.done;
+            const schedule = calculateDateByOffset(startDateStr, globalSectionIdx);
+            globalSectionIdx++;
+
+            sectionsHtml += `
+              <div onclick="toggleItem('${key}')" 
+                   class="relative cursor-pointer select-none p-3.5 rounded-xl border text-left transition flex flex-col justify-between min-h-[115px] ${
+                     isDone 
+                       ? 'bg-emerald-950/40 border-emerald-700/80 text-emerald-100' 
+                       : schedule.isToday
+                         ? 'bg-indigo-950/60 border-indigo-500 ring-2 ring-indigo-500/50 text-slate-100'
+                         : 'bg-slate-900/40 border-slate-800 text-slate-300 hover:border-slate-700 hover:bg-slate-900/70'
+                   }">
+                <div class="flex items-start justify-between gap-1">
+                  <div>
+                    <div class="text-xs font-bold text-slate-200">Section ${s}</div>
+                    <div class="text-[11px] text-slate-400 flex items-center gap-1.5 mt-0.5">
+                      <span>${schedule.weekdayName}</span>
+                      <span class="text-[10px] px-1 py-0.2 rounded bg-slate-800 text-emerald-300 font-mono font-bold">${schedule.weekdayJp}</span>
+                    </div>
+                  </div>
+                  ${schedule.isToday ? '<span class="text-[9px] font-extrabold uppercase bg-indigo-500 text-white px-1.5 py-0.5 rounded-full animate-pulse">Bugun</span>' : ''}
+                </div>
+
+                <div class="text-[11px] font-mono text-slate-400 mt-2">
+                  📅 ${schedule.formattedDate} <span class="text-[10px] text-slate-500">• ~42 so‘z</span>
+                </div>
+
+                <div class="mt-2 pt-1.5 border-t border-slate-800/60 flex items-center justify-between">
+                  ${
+                    isDone 
+                      ? `<span class="text-[10px] text-emerald-400 font-medium">✓ ${item.completedAt}</span>
+                         <span class="text-emerald-400 text-xs">✔</span>`
+                      : `<span class="text-[10px] text-slate-400">Kutilmoqda</span>
+                         <span class="w-3.5 h-3.5 rounded border border-slate-700 bg-slate-800/50"></span>`
+                  }
+                </div>
+              </div>
+            `;
+          }
+
+          card.innerHTML = `
+            <div class="flex justify-between items-center mb-3">
+              <div>
+                <span class="text-sm font-bold text-slate-200">${ch.title}</span>
+                <span class="text-xs text-slate-400 ml-2">(${ch.uz})</span>
+              </div>
+              <span class="text-xs font-medium ${chDone === 5 ? 'text-emerald-400' : 'text-slate-400'}">
+                ${chDone} / 5 section bajarildi
+              </span>
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+              ${sectionsHtml}
+            </div>
+          `;
+          container.appendChild(card);
+        });
+
+      } else {
+        // Sou Matome Haftalik UI (Grammar, Kanji, Dokkai, Choukai)
+        for (let w = 1; w <= currentBook.weeks; w++) {
+          let weekCompleted = 0;
+          for (let d = 1; d <= 7; d++) {
+            if (state[`${currentBook.id}_w${w}_d${d}`]?.done) weekCompleted++;
+          }
+
+          const card = document.createElement('div');
+          card.className = 'bg-slate-950/70 border border-slate-800/80 rounded-xl p-4 sm:p-5';
+
+          let daysHtml = '';
+          for (let d = 1; d <= 7; d++) {
+            const key = `${currentBook.id}_w${w}_d${d}`;
+            const item = state[key];
+            const isDone = !!item?.done;
+            const isTestDay = d === 7;
+            const offset = ((w - 1) * 7) + (d - 1);
+            const schedule = calculateDateByOffset(startDateStr, offset);
+
+            daysHtml += `
+              <div onclick="toggleItem('${key}')" 
+                   class="relative cursor-pointer select-none p-3 rounded-xl border text-left transition flex flex-col justify-between min-h-[110px] ${
+                     isDone 
+                       ? 'bg-emerald-950/40 border-emerald-700/80 text-emerald-100' 
+                       : schedule.isToday
+                         ? 'bg-indigo-950/60 border-indigo-500 ring-2 ring-indigo-500/50 text-slate-100'
+                         : isTestDay
+                           ? 'bg-slate-900/50 border-amber-900/40 text-amber-200 hover:border-amber-700'
+                           : 'bg-slate-900/40 border-slate-800 text-slate-300 hover:border-slate-700'
+                   }">
+                <div class="flex items-start justify-between gap-1">
+                  <div>
+                    <div class="text-xs font-bold ${isTestDay ? 'text-amber-400' : 'text-slate-200'}">
+                      ${isTestDay ? '7-kun (Test)' : `${d}-kun`}
+                    </div>
+                    <div class="text-[11px] text-slate-400 flex items-center gap-1.5 mt-0.5">
+                      <span>${schedule.weekdayName}</span>
+                      <span class="text-[10px] px-1 py-0.2 rounded bg-slate-800 text-indigo-300 font-mono font-bold">${schedule.weekdayJp}</span>
+                    </div>
+                  </div>
+                  ${schedule.isToday ? '<span class="text-[9px] font-extrabold uppercase bg-indigo-500 text-white px-1.5 py-0.5 rounded-full animate-pulse">Bugun</span>' : ''}
+                </div>
+
+                <div class="text-[11px] font-mono text-slate-400 mt-2">
+                  📅 ${schedule.formattedDate}
+                </div>
+
+                <div class="mt-2 pt-1.5 border-t border-slate-800/60 flex items-center justify-between">
+                  ${
+                    isDone 
+                      ? `<span class="text-[10px] text-emerald-400 font-medium">✓ ${item.completedAt}</span>
+                         <span class="text-emerald-400 text-xs">✔</span>`
+                      : `<span class="text-[10px] text-slate-400">Kutilmoqda</span>
+                         <span class="w-3.5 h-3.5 rounded border border-slate-700 bg-slate-800/50"></span>`
+                  }
+                </div>
+              </div>
+            `;
+          }
+
+          card.innerHTML = `
+            <div class="flex justify-between items-center mb-3">
+              <span class="text-sm font-bold text-slate-200">${w}-Hafta (第${w}週)</span>
+              <span class="text-xs font-medium ${weekCompleted === 7 ? 'text-emerald-400' : 'text-slate-400'}">
+                ${weekCompleted} / 7 kun bajarildi
+              </span>
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5">
+              ${daysHtml}
+            </div>
+          `;
+          container.appendChild(card);
+        }
+      }
+    }
+
+    render();
+  </script>
+</body>
+</html>
