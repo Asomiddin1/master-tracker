@@ -55,6 +55,39 @@
       </div>
     </section>
 
+    <!-- SQLite Viewer -->
+    <section class="bg-slate-900 border border-slate-800 rounded-2xl p-6 mb-8 shadow-xl">
+      <div class="flex flex-col lg:flex-row lg:items-end gap-3 mb-4">
+        <div class="flex-1">
+          <h3 class="text-lg font-bold text-white">SQLite ma’lumotlarini ko‘rish</h3>
+          <p class="text-xs text-slate-400 mt-1">`.sqlite`, `.db`, `.sqlite3` fayl yuklang va jadval ichidagi satrlarni oching.</p>
+        </div>
+        <div class="w-full lg:w-auto">
+          <label for="sqliteFileInput" class="block text-xs text-slate-400 mb-1">SQLite fayl</label>
+          <input id="sqliteFileInput" type="file" accept=".sqlite,.db,.sqlite3" onchange="handleSqliteFile(event)" class="w-full lg:w-72 text-xs bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-200 file:bg-slate-700 file:text-slate-200 file:border-0 file:mr-2 file:rounded file:px-2 file:py-1">
+        </div>
+      </div>
+
+      <div class="flex flex-col sm:flex-row gap-2 sm:items-end mb-3">
+        <div class="flex-1">
+          <label for="sqliteTableSelect" class="block text-xs text-slate-400 mb-1">Jadval</label>
+          <select id="sqliteTableSelect" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-sm text-slate-200 disabled:opacity-60" disabled>
+            <option value="">Avval SQLite fayl yuklang</option>
+          </select>
+        </div>
+        <div>
+          <label for="sqliteLimitInput" class="block text-xs text-slate-400 mb-1">Limit</label>
+          <input id="sqliteLimitInput" type="number" min="1" max="200" value="20" class="w-24 bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-sm text-slate-200">
+        </div>
+        <button onclick="previewSelectedTable()" id="sqlitePreviewBtn" class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+          Ochish
+        </button>
+      </div>
+
+      <p id="sqliteStatus" class="text-xs text-slate-400 mb-3">SQLite fayl hali tanlanmadi.</p>
+      <div id="sqliteTableWrapper" class="overflow-auto rounded-xl border border-slate-800 bg-slate-950/50"></div>
+    </section>
+
     <!-- Subject Tabs -->
     <nav class="flex gap-2 overflow-x-auto pb-3 mb-6 no-scrollbar" id="bookTabs"></nav>
 
@@ -83,6 +116,7 @@
     </main>
   </div>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.min.js"></script>
   <script>
     // Tango 2500 barcha 12 ta bobi
     const TANGO_CHAPTERS = [
@@ -154,6 +188,135 @@
     let currentBookId = 'tango2500';
     const STORAGE_KEY = 'jlpt_n2_tracker_tango_v1';
     const START_DATE_KEY = 'jlpt_n2_start_date_tango_v1';
+    let sqliteDb = null;
+    let sqliteInitPromise = null;
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+
+    function setSqliteStatus(message, tone = 'normal') {
+      const el = document.getElementById('sqliteStatus');
+      el.innerText = message;
+      el.className = `text-xs mb-3 ${
+        tone === 'error'
+          ? 'text-rose-400'
+          : tone === 'success'
+            ? 'text-emerald-400'
+            : 'text-slate-400'
+      }`;
+    }
+
+    function resetSqlitePreview() {
+      document.getElementById('sqliteTableWrapper').innerHTML = '';
+    }
+
+    async function getSqliteEngine() {
+      if (sqliteInitPromise) return sqliteInitPromise;
+      sqliteInitPromise = initSqlJs({
+        locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${file}`
+      });
+      return sqliteInitPromise;
+    }
+
+    async function handleSqliteFile(event) {
+      const file = event.target.files?.[0];
+      const tableSelect = document.getElementById('sqliteTableSelect');
+      const previewBtn = document.getElementById('sqlitePreviewBtn');
+
+      resetSqlitePreview();
+      tableSelect.innerHTML = '<option value="">Jadvallar topilmadi</option>';
+      tableSelect.disabled = true;
+      previewBtn.disabled = true;
+      sqliteDb = null;
+
+      if (!file) {
+        setSqliteStatus('SQLite fayl tanlanmadi.');
+        return;
+      }
+
+      setSqliteStatus('Yuklanmoqda...');
+      try {
+        const SQL = await getSqliteEngine();
+        const raw = await file.arrayBuffer();
+        sqliteDb = new SQL.Database(new Uint8Array(raw));
+
+        const tableResult = sqliteDb.exec(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+        );
+        const tables = tableResult[0]?.values?.map(row => row[0]) || [];
+
+        if (!tables.length) {
+          setSqliteStatus('Faylda foydalanuvchi jadvallari topilmadi.', 'error');
+          tableSelect.innerHTML = '<option value="">Jadval mavjud emas</option>';
+          return;
+        }
+
+        tableSelect.innerHTML = tables
+          .map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`)
+          .join('');
+        tableSelect.disabled = false;
+        previewBtn.disabled = false;
+        setSqliteStatus(`Fayl ochildi. ${tables.length} ta jadval topildi.`, 'success');
+      } catch (error) {
+        setSqliteStatus('SQLite faylni ochib bo‘lmadi. Fayl buzilgan yoki noto‘g‘ri formatda bo‘lishi mumkin.', 'error');
+      }
+    }
+
+    function renderSqliteTable(columns, rows, limit, tableName) {
+      const headerHtml = columns.map(col => `<th class="px-3 py-2 text-left text-xs font-semibold text-slate-200 border-b border-slate-800">${escapeHtml(col)}</th>`).join('');
+      const rowsHtml = rows.map(row => {
+        const cells = row.map(cell => `<td class="px-3 py-2 text-xs text-slate-300 border-b border-slate-900 align-top">${escapeHtml(cell ?? 'NULL')}</td>`).join('');
+        return `<tr>${cells}</tr>`;
+      }).join('');
+
+      document.getElementById('sqliteTableWrapper').innerHTML = `
+        <div class="px-3 py-2 text-xs text-slate-400 border-b border-slate-800">
+          Jadval: <span class="text-indigo-300 font-semibold">${escapeHtml(tableName)}</span> • Ko‘rsatilgan satrlar: <span class="text-slate-200">${rows.length}</span> (limit: ${limit})
+        </div>
+        <table class="min-w-full">
+          <thead class="bg-slate-900/80 sticky top-0">${headerHtml}</thead>
+          <tbody>${rowsHtml || `<tr><td colspan="${columns.length}" class="px-3 py-3 text-xs text-slate-400">Jadval bo‘sh.</td></tr>`}</tbody>
+        </table>
+      `;
+    }
+
+    function previewSelectedTable() {
+      if (!sqliteDb) {
+        setSqliteStatus('Avval SQLite fayl yuklang.', 'error');
+        return;
+      }
+
+      const tableName = document.getElementById('sqliteTableSelect').value;
+      const limitInput = Number(document.getElementById('sqliteLimitInput').value);
+      const safeLimit = Number.isFinite(limitInput) ? Math.min(200, Math.max(1, limitInput)) : 20;
+
+      if (!tableName) {
+        setSqliteStatus('Jadval tanlang.', 'error');
+        return;
+      }
+
+      try {
+        const safeName = tableName.replaceAll('"', '""');
+        const result = sqliteDb.exec(`SELECT * FROM "${safeName}" LIMIT ${safeLimit}`);
+        const table = result[0];
+        if (!table) {
+          renderSqliteTable([], [], safeLimit, tableName);
+          setSqliteStatus('Jadval bo‘sh yoki natija yo‘q.', 'normal');
+          return;
+        }
+        renderSqliteTable(table.columns, table.values, safeLimit, tableName);
+        setSqliteStatus('Jadval muvaffaqiyatli ochildi.', 'success');
+      } catch (error) {
+        resetSqlitePreview();
+        setSqliteStatus('Jadvalni o‘qishda xatolik yuz berdi.', 'error');
+      }
+    }
 
     function getStartDate() {
       let saved = localStorage.getItem(START_DATE_KEY);
